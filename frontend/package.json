@@ -1,0 +1,31 @@
+{
+    "name": "circuitmind-frontend",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc && vite build",
+      "preview": "vite preview"
+    },
+    "dependencies": {
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "zustand": "^4.5.2",
+      "immer": "^10.0.4",
+      "d3": "^7.9.0",
+      "three": "^0.163.0",
+      "pyodide": "^0.25.0"
+    },
+    "devDependencies": {
+      "@types/react": "^18.2.0",
+      "@types/react-dom": "^18.2.0",
+      "@types/d3": "^7.4.3",
+      "@types/three": "^0.163.0",
+      "@vitejs/plugin-react": "^4.2.1",
+      "vite-plugin-wasm": "^3.3.0",
+      "vite-plugin-top-level-await": "^1.4.4",
+      "typescript": "^5.4.5",
+      "vite": "^5.2.0"
+    }
+  }
