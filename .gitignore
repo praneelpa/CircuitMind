@@ -1,8 +1,8 @@
-node_modules
-dist
-.env.local
+node_modules/
+dist/
 .env
-solver/target
-backend/venv
+.env.local
+solver/target/
+backend/venv/
 *.log
 .DS_Store
