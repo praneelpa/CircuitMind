@@ -1,5 +1,6 @@
-import React, { useRef, useCallback, useEffect, useState } from "react";
-import { useCircuitStore, snapToGrid } from "../../store/circuitStore";
+// src/components/editor/Canvas.tsx
+import React, {useRef, useCallback, useEffect, useState} from "react";
+import {useCircuitStore, snapToGrid} from "../../store/circuitStore";
 import {
     CircuitComponent,
     Wire,
@@ -7,23 +8,30 @@ import {
     ComponentType,
     GRID_SIZE,
 } from "../../types/circuit";
+
 // consts
-const GRID_COLOR = "#1e2a3a";
-const GRID_DOT_COLOR = "#2a3f55";
-const WIRE_COLOR = "#4ade80";
-const WIRE_SELECTED = "#facc15";
-const WIRE_PREVIEW = "#4ade8088";
-const COMP_FILL = "#0f1f2e";
-const COMP_STROKE = "#38bdf8";
-const COMP_SELECTED = "#facc15";
+
+const GRID_DOT_COLOR  = "#2a3f55";
+const WIRE_COLOR      = "#4ade80";
+const WIRE_SELECTED   = "#facc15";
+const WIRE_PREVIEW    = "#4ade8088";
+const COMP_FILL       = "#0f1f2e";
+const COMP_STROKE     = "#38bdf8";
+const COMP_SELECTED   = "#facc15";
 const COMP_LABEL_COLOR = "#94a3b8";
 const COMP_VALUE_COLOR = "#38bdf8";
-const PIN_COLOR = "#f472b6";
+const COMP_HOVER_STROKE = "#7dd3fc";
+const PIN_COLOR       = "#f472b6";
 const PIN_HOVER_COLOR = "#ffffff";
-const BG_COLOR = "#080f1a";
+const BG_COLOR        = "#080f1a";
 const ELECTRON_COLORS = ["#4ade80", "#22d3ee", "#a78bfa"];
+const SEL_BOX_FILL    = "#38bdf812";
+const SEL_BOX_STROKE  = "#38bdf8";
+
 // types
+
 type Tool = "select" | "wire" | ComponentType;
+
 interface CanvasProps {
     activeTool: Tool;
     onComponentSelect: (id: string | null) => void;
@@ -31,21 +39,29 @@ interface CanvasProps {
 
 interface Electron {
     wireId: string;
-    t: number; // 0..1 pos along wire
+    t: number;
     speed: number;
     colorIdx: number;
 }
-// utility
+
+interface ContextMenu {
+    x: number;
+    y: number;
+    targetId: string | null;
+    targetType: "component" | "wire" | "canvas";
+}
+
+// utils
+
 function ptAlongPolyline(points: Point[], t: number): Point {
-    if (points.length < 2) return points[0] ?? {x:0, y:0};
+    if (points.length < 2) return points[0] ?? {x: 0, y: 0};
     const segs: number[] = [];
     let total = 0;
     for (let i = 1; i < points.length; i++) {
         const dx = points[i].x - points[i - 1].x;
         const dy = points[i].y - points[i - 1].y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        segs.push(len);
-        total += len;
+        segs.push(Math.sqrt(dx * dx + dy * dy));
+        total += segs[segs.length - 1];
     }
     if (total === 0) return points[0];
     let target = t * total;
@@ -53,34 +69,32 @@ function ptAlongPolyline(points: Point[], t: number): Point {
         if (target <= segs[i]) {
             const frac = target / segs[i];
             return {
-                x: points[i].x + frac * (points[i+1].x - points[i].x),
-                y: points[i].y + frac * (points[i+1].y - points[i].y),
+                x: points[i].x + frac * (points[i + 1].x - points[i].x),
+                y: points[i].y + frac * (points[i + 1].y - points[i].y),
             };
         }
         target -= segs[i];
     }
     return points[points.length - 1];
 }
-// svg shapes
-function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean) 
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+// draw funcs
+
+function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const w = GRID_SIZE * 1.6;
     const h = GRID_SIZE * 0.6;
-    // lead lines
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE, y);
     ctx.lineTo(x - w / 2, y);
     ctx.moveTo(x + w / 2, y);
     ctx.lineTo(x + GRID_SIZE, y);
     ctx.stroke();
-    // body rect
     ctx.fillStyle = COMP_FILL;
     ctx.fillRect(x - w / 2, y - h / 2, w, h);
     ctx.strokeRect(x - w / 2, y - h / 2, w, h);
-    // zigzag
     ctx.beginPath();
     const steps = 6;
     const sw = w / steps;
@@ -93,9 +107,9 @@ function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selec
     ctx.lineWidth = 1;
     ctx.stroke();
 }
-function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean)
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const gap = 5;
@@ -106,7 +120,6 @@ function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, sele
     ctx.moveTo(x + gap, y);
     ctx.lineTo(x + GRID_SIZE, y);
     ctx.stroke();
-    // plates
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(x - gap, y - plateH / 2);
@@ -115,9 +128,9 @@ function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, sele
     ctx.lineTo(x + gap, y + plateH / 2);
     ctx.stroke();
 }
-function drawInductor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean)
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE ;
+
+function drawInductor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const r = 6;
@@ -128,38 +141,37 @@ function drawInductor(ctx: CanvasRenderingContext2D, x: number, y: number, selec
     ctx.lineTo(x - totalW / 2, y);
     for (let i = 0; i < loops; i++) {
         const cx = x - totalW / 2 + r + i * r * 2;
-        ctx.arc(cx,y,r,Math.PI, 0, false);
+        ctx.arc(cx, y, r, Math.PI, 0, false);
     }
-    ctx.lineTo(x+GRID_SIZE, y);
+    ctx.lineTo(x + GRID_SIZE, y);
     ctx.stroke();
 }
-function drawVoltageSource(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, value: string) 
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawVoltageSource(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const r = GRID_SIZE * 0.7;
     ctx.beginPath();
-    ctx.moveTo(x,y-GRID_SIZE);
-    ctx.lineTo(x,y-r);
+    ctx.moveTo(x, y - GRID_SIZE);
+    ctx.lineTo(x, y - r);
     ctx.moveTo(x, y + r);
-    ctx.lineTo(x,y+GRID_SIZE);
+    ctx.lineTo(x, y + GRID_SIZE);
     ctx.stroke();
     ctx.fillStyle = COMP_FILL;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    // signs
     ctx.fillStyle = color;
     ctx.font = `bold ${GRID_SIZE * 0.5}px monospace`;
     ctx.textAlign = "center";
     ctx.fillText("+", x, y - r * 0.3);
-    ctx.fillText("-", x, y + r * 0.55);
+    ctx.fillText("−", x, y + r * 0.55);
 }
-function drawGround(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean)
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawGround(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -167,9 +179,9 @@ function drawGround(ctx: CanvasRenderingContext2D, x: number, y: number, selecte
     ctx.lineTo(x, y);
     ctx.stroke();
     const lines = [
-        { w: GRID_SIZE * 0.9, y:y},
-        { w: GRID_SIZE * 0.6, y:y+6},
-        { w: GRID_SIZE * 0.3, y:y+12},
+        {w: GRID_SIZE * 0.9, y: y},
+        {w: GRID_SIZE * 0.6, y: y + 6},
+        {w: GRID_SIZE * 0.3, y: y + 12},
     ];
     lines.forEach(({w, y: ly}) => {
         ctx.beginPath();
@@ -178,16 +190,17 @@ function drawGround(ctx: CanvasRenderingContext2D, x: number, y: number, selecte
         ctx.stroke();
     });
 }
-function drawDiode(ctx: CanvasRenderingContext2D, x: number, y:number, selected: boolean) {
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawDiode(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = 1.5;
     const s = GRID_SIZE * 0.55;
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE, y);
-    ctx.lineTo(x-s, y);
-    ctx.moveTo(x+s, y);
+    ctx.lineTo(x - s, y);
+    ctx.moveTo(x + s, y);
     ctx.lineTo(x + GRID_SIZE, y);
     ctx.stroke();
     ctx.beginPath();
@@ -204,121 +217,133 @@ function drawDiode(ctx: CanvasRenderingContext2D, x: number, y:number, selected:
     ctx.lineTo(x + s, y + s);
     ctx.stroke();
 }
-function drawOpAmp(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean)
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawOpAmp(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.fillStyle = COMP_FILL;
     ctx.lineWidth = 1.5;
     const s = GRID_SIZE * 1.2;
     ctx.beginPath();
-    ctx.moveTo(x-s, y-s);
-    ctx.lineTo(x-s, y+s);
-    ctx.lineTo(x+s, y);
+    ctx.moveTo(x - s, y - s);
+    ctx.lineTo(x - s, y + s);
+    ctx.lineTo(x + s, y);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = color;
     ctx.font = `${GRID_SIZE * 0.4}px monospace`;
     ctx.textAlign = "left";
-    ctx.fillText("+", x-s+4, y-s*0.35);
-    ctx.fillText("-", x-s+4, y+s*0.55);
+    ctx.fillText("+", x - s + 4, y - s * 0.35);
+    ctx.fillText("−", x - s + 4, y + s * 0.55);
 }
-function drawTransistorNPN(ctx:CanvasRenderingContext2D, x: number, y:number, selected: boolean)
-{
-    const color = selected ? COMP_SELECTED : COMP_STROKE;
+
+function drawTransistorNPN(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+    const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.fillStyle = COMP_FILL;
     ctx.lineWidth = 1.5;
-    // base
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE, y);
     ctx.lineTo(x - GRID_SIZE * 0.3, y);
     ctx.stroke();
-    // vertical base bar
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(x-GRID_SIZE*0.3, y-GRID_SIZE * 0.7);
-    ctx.lineTo(x-GRID_SIZE*0.3, y+GRID_SIZE*0.7);
+    ctx.moveTo(x - GRID_SIZE * 0.3, y - GRID_SIZE * 0.7);
+    ctx.lineTo(x - GRID_SIZE * 0.3, y + GRID_SIZE * 0.7);
     ctx.stroke();
-    ctx.lineWidth=1.5;
-    // collector
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(x-GRID_SIZE*0.3, y-GRID_SIZE*0.4);
-    ctx.lineTo(x,y-GRID_SIZE*0.7);
-    ctx.lineTo(x,y-GRID_SIZE);
+    ctx.moveTo(x - GRID_SIZE * 0.3, y - GRID_SIZE * 0.4);
+    ctx.lineTo(x, y - GRID_SIZE * 0.7);
+    ctx.lineTo(x, y - GRID_SIZE);
     ctx.stroke();
-    // emitter w/ arrow
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE * 0.3, y + GRID_SIZE * 0.4);
-    ctx.lineTo(x, y+GRID_SIZE*0.7);
-    ctx.lineTo(x,y+GRID_SIZE);
+    ctx.lineTo(x, y + GRID_SIZE * 0.7);
+    ctx.lineTo(x, y + GRID_SIZE);
     ctx.stroke();
-    // arrow
-    const ax = x-2, ay = y + GRID_SIZE * 0.6;
+    const ax = x - 2, ay = y + GRID_SIZE * 0.6;
     ctx.beginPath();
-    ctx.moveTo(ax,ay);
-    ctx.lineTo(ax+6, ay-4);
-    ctx.lineTo(ax+6, ay+4);
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax + 6, ay - 4);
+    ctx.lineTo(ax + 6, ay + 4);
     ctx.closePath();
-    ctx.fillStyle=color;
+    ctx.fillStyle = color;
     ctx.fill();
 }
 
-// main canvas comp
+// main canvas
 
 const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animFrameRef = useRef<number>(0);
     const electronsRef = useRef<Electron[]>([]);
-    const {
-        circuit,
-        wireInProgress,
-        zoom,
-        pan,
-        startWire,
-        extendWire,
-        finishWire,
-        cancelWire,
-        addComponent,
-        selectComponent,
-        selectWire,
-        clearSelection,
-        deleteSelected,
-        moveComponent,
-        setZoom,
-        setPan,
-        setHoveredPin,
-        hoveredPin,
-    } = useCircuitStore();
-    const [draggingId, setDraggingId] = useState<string|null>(null);
-    const [dragStart, setDragStart] = useState<Point>({x:0, y:0});
-    const [isPanning, setIsPanning] = useState(false);
-    const [panStart, setPanStart] = useState<Point>({x:0, y:0});
-    const [cursor, setCursor] = useState("crosshair");
-    const [mousePos, setMousePos] = useState<Point>({x:0, y:0});
+    const dragStartWorldRef = useRef<Point>({x: 0, y: 0});
 
-    // coordinate transforms
+    // 1. Extract only the constants/functions needed for DOM event handlers
+    const pan = useCircuitStore(state => state.pan);
+    const zoom = useCircuitStore(state => state.zoom);
+    const wireInProgress = useCircuitStore(state => state.wireInProgress);
+
+    // 2. Extract actions individually so they don't trigger re-renders
+    const startWire = useCircuitStore(state => state.startWire);
+    const extendWire = useCircuitStore(state => state.extendWire);
+    const finishWire = useCircuitStore(state => state.finishWire);
+    const addComponent = useCircuitStore(state => state.addComponent);
+    const selectComponent = useCircuitStore(state => state.selectComponent);
+    const selectWire = useCircuitStore(state => state.selectWire);
+    const clearSelection = useCircuitStore(state => state.clearSelection);
+    const moveComponent = useCircuitStore(state => state.moveComponent);
+    const moveSelected = useCircuitStore(state => state.moveSelected);
+    const pushHistory = useCircuitStore(state => state.pushHistory);
+    const startSelectionBox = useCircuitStore(state => state.startSelectionBox);
+    const updateSelectionBox = useCircuitStore(state => state.updateSelectionBox);
+    const finishSelectionBox = useCircuitStore(state => state.finishSelectionBox);
+    const setPan = useCircuitStore(state => state.setPan);
+    const setZoom = useCircuitStore(state => state.setZoom);
+    const setHoveredPin = useCircuitStore(state => state.setHoveredPin);
+    const setHoveredComponent = useCircuitStore(state => state.setHoveredComponent);
+
+    // Actions specifically for the Context Menu
+    const rotateSelected = useCircuitStore(state => state.rotateSelected);
+    const duplicate = useCircuitStore(state => state.duplicate);
+    const copy = useCircuitStore(state => state.copy);
+    const paste = useCircuitStore(state => state.paste);
+    const cut = useCircuitStore(state => state.cut);
+    const deleteSelected = useCircuitStore(state => state.deleteSelected);
+    const deleteWire = useCircuitStore(state => state.deleteWire);
+    const selectAll = useCircuitStore(state => state.selectAll);
+    const undo = useCircuitStore(state => state.undo);
+    const redo = useCircuitStore(state => state.redo);
+
+    const [draggingId, setDraggingId] = useState<string | null>(null);
+    const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+    const [dragStart, setDragStart] = useState<Point>({x: 0, y: 0});
+    const [isPanning, setIsPanning] = useState(false);
+    const [panStart, setPanStart] = useState<Point>({x: 0, y: 0});
+    const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+    const [cursor, setCursor] = useState("crosshair");
+    const mousePosRef = useRef<Point>({ x: 0, y: 0 });
+    const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+
+    // coordinate transfrms
+
     const screenToWorld = useCallback(
-        (sx:number, sy:number): Point => ({
-            x: (sx-pan.x) / zoom,
-            y: (sy-pan.y) / zoom,
+        (sx: number, sy: number): Point => ({
+            x: (sx - pan.x) / zoom,
+            y: (sy - pan.y) / zoom,
         }),
-        [pan,zoom]
+        [pan, zoom]
     );
-    const worldToScreen = useCallback(
-        (wx:number, wy: number): Point => ({
-            x: wx * zoom + pan.x,
-            y: wy * zoom + pan.y,
-        }),
-        [pan,zoom]
-    );
-    // electron anim
+
+    // electron sync 
+    const wires = useCircuitStore(state => state.circuit.wires); // <-- Add this specific subscription
+
     useEffect(() => {
-        const wires = Object.values(circuit.wires);
-        // spawn e- on wires
-        const existing = new Set(electronsRef.current.map((e)=> e.wireId));
-        wires.forEach((w) => {
+        const wireList = Object.values(wires);
+        const existing = new Set(electronsRef.current.map((e) => e.wireId));
+        wireList.forEach((w) => {
             if (!existing.has(w.id)) {
                 electronsRef.current.push({
                     wireId: w.id,
@@ -328,22 +353,29 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 });
             }
         });
-        // Remove electrons for deleted wires
-        const wireIds = new Set(wires.map((w) => w.id));
-        electronsRef.current = electronsRef.current.filter((e) => 
-            wireIds.has(e.wireId)
-        );
-    }, [circuit.wires]);
+        const wireIds = new Set(wireList.map((w) => w.id));
+        electronsRef.current = electronsRef.current.filter((e) => wireIds.has(e.wireId));
+    }, [wires]); // <-- Update dependency
+
     // draw
     const draw = useCallback(() => {
+        const state = useCircuitStore.getState();
+        const { 
+            circuit, wireInProgress, zoom, pan, hoveredPin, 
+            hoveredComponentId, selectionBox 
+        } = state;
+        const mousePos = mousePosRef.current; 
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         const W = canvas.width;
         const H = canvas.height;
+
         ctx.fillStyle = BG_COLOR;
-        ctx.fillRect(0,0,W,H);
+        ctx.fillRect(0, 0, W, H);
+
+        // grid dots
         const step = GRID_SIZE * zoom;
         const offsetX = pan.x % step;
         const offsetY = pan.y % step;
@@ -351,13 +383,15 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         for (let gx = offsetX; gx < W; gx += step) {
             for (let gy = offsetY; gy < H; gy += step) {
                 ctx.beginPath();
-                ctx.arc(gx,gy, zoom < 0.5 ? 0.5 : 1, 0, Math.PI * 2);
+                ctx.arc(gx, gy, zoom < 0.5 ? 0.5 : 1, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
-        ctx.save()
+
+        ctx.save();
         ctx.translate(pan.x, pan.y);
         ctx.scale(zoom, zoom);
+
         // wires
         Object.values(circuit.wires).forEach((wire) => {
             if (wire.points.length < 2) return;
@@ -366,11 +400,10 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.lineJoin = "round";
             ctx.lineCap = "round";
             ctx.beginPath();
-            wire.points.forEach((p, i) => 
+            wire.points.forEach((p, i) =>
                 i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
             );
             ctx.stroke();
-            // junction dots at endp
             [wire.points[0], wire.points[wire.points.length - 1]].forEach((p) => {
                 ctx.fillStyle = WIRE_COLOR;
                 ctx.beginPath();
@@ -378,7 +411,8 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 ctx.fill();
             });
         });
-        // Wire in prog
+
+        // wire in progress
         if (wireInProgress && wireInProgress.length >= 2) {
             ctx.strokeStyle = WIRE_PREVIEW;
             ctx.lineWidth = 1.5 / zoom;
@@ -390,6 +424,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.stroke();
             ctx.setLineDash([]);
         }
+
         // electrons
         electronsRef.current.forEach((electron) => {
             const wire = circuit.wires[electron.wireId];
@@ -397,76 +432,89 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             const pos = ptAlongPolyline(wire.points, electron.t);
             const color = ELECTRON_COLORS[electron.colorIdx];
             ctx.beginPath();
-            ctx.arc(pos.x, pos.y, 3/zoom, 0, Math.PI *2);
+            ctx.arc(pos.x, pos.y, 3 / zoom, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
-            // glow ring
             ctx.beginPath();
-            ctx.arc(pos.x, pos.y, 6/zoom, 0, Math.PI * 2);
+            ctx.arc(pos.x, pos.y, 6 / zoom, 0, Math.PI * 2);
             ctx.strokeStyle = color + "44";
-            ctx.lineWidth = 1/zoom;
+            ctx.lineWidth = 1 / zoom;
             ctx.stroke();
         });
-        // comps
+
+        // components
         Object.values(circuit.components).forEach((comp) => {
-            const {x,y} = comp.position;
+            const {x, y} = comp.position;
+            const hovered = hoveredComponentId === comp.id;
             ctx.save();
-            ctx.translate(x,y);
-            ctx.rotate((comp.rotation * Math.PI)/180);
+            ctx.translate(x, y);
+            ctx.rotate((comp.rotation * Math.PI) / 180);
+
+            // hover glow
+            if (hovered && !comp.selected) {
+                ctx.shadowColor = COMP_HOVER_STROKE;
+                ctx.shadowBlur = 8 / zoom;
+            }
+
             switch (comp.type) {
-                case "resistor":
-                    drawResistor(ctx,0,0,comp.selected);
-                    break;
-                case "capacitor":
-                    drawCapacitor(ctx,0,0,comp.selected);
-                    break;
-                case "inductor":
-                    drawInductor(ctx,0,0,comp.selected);
-                    break;
-                case "voltage_source":
-                    drawVoltageSource(ctx,0,0,comp.selected,comp.value);
-                    break;
-                case "ground":
-                    drawGround(ctx,0,0,comp.selected);
-                    break;
-                case "diode":
-                    drawDiode(ctx,0,0,comp.selected);
-                    break;
-                case "op_amp":
-                    drawOpAmp(ctx,0,0, comp.selected);
-                    break;
-                case "transistor_npn":
-                    drawTransistorNPN(ctx,0,0,comp.selected);
-                    break;
+                case "resistor":        drawResistor(ctx, 0, 0, comp.selected, hovered); break;
+                case "capacitor":       drawCapacitor(ctx, 0, 0, comp.selected, hovered); break;
+                case "inductor":        drawInductor(ctx, 0, 0, comp.selected, hovered); break;
+                case "voltage_source":  drawVoltageSource(ctx, 0, 0, comp.selected, hovered); break;
+                case "ground":          drawGround(ctx, 0, 0, comp.selected, hovered); break;
+                case "diode":           drawDiode(ctx, 0, 0, comp.selected, hovered); break;
+                case "op_amp":          drawOpAmp(ctx, 0, 0, comp.selected, hovered); break;
+                case "transistor_npn":  drawTransistorNPN(ctx, 0, 0, comp.selected, hovered); break;
                 default:
-                    // Generic box
                     ctx.strokeStyle = comp.selected ? COMP_SELECTED : COMP_STROKE;
                     ctx.fillStyle = COMP_FILL;
                     ctx.lineWidth = 1.5;
                     ctx.fillRect(-GRID_SIZE, -GRID_SIZE * 0.5, GRID_SIZE * 2, GRID_SIZE);
                     ctx.strokeRect(-GRID_SIZE, -GRID_SIZE * 0.5, GRID_SIZE * 2, GRID_SIZE);
             }
-            // label and val
-            ctx.rotate((-comp.rotation * Math.PI) / 180);
-            ctx.font = `${11/zoom}px 'JetBrains Mono', monospace`;
-            ctx.textAlign = "center";
-            ctx.fillStyle = COMP_LABEL_COLOR;
-            ctx.fillText(comp.label, 0, -GRID_SIZE * 0.9);
-            ctx.fillStyle = COMP_VALUE_COLOR;
-            ctx.fillText(`${comp.value}${comp.unit}`, 0, GRID_SIZE * 1.1);
+
+            ctx.shadowBlur = 0;
+            ctx.rotate((-comp.rotation * Math.PI) / 180); // Un-rotate to draw text upright
+            ctx.font = `${GRID_SIZE * 0.65}px 'JetBrains Mono', monospace`;
+            
+            const isVertical = comp.rotation % 180 !== 0;
+
+            if (isVertical) {
+                // Vertical components: Place labels on the left and right
+                ctx.textBaseline = "middle";
+                
+                ctx.fillStyle = COMP_LABEL_COLOR;
+                ctx.textAlign = "right";
+                ctx.fillText(comp.label, -GRID_SIZE * 0.8, 0);
+                
+                ctx.fillStyle = COMP_VALUE_COLOR;
+                ctx.textAlign = "left";
+                ctx.fillText(`${comp.value}${comp.unit}`, GRID_SIZE * 0.8, 0);
+            } else {
+                // Horizontal components: Place labels on the top and bottom
+                ctx.textAlign = "center";
+                
+                ctx.fillStyle = COMP_LABEL_COLOR;
+                ctx.textBaseline = "bottom";
+                ctx.fillText(comp.label, 0, -GRID_SIZE * 0.7);
+                
+                ctx.fillStyle = COMP_VALUE_COLOR;
+                ctx.textBaseline = "top";
+                ctx.fillText(`${comp.value}${comp.unit}`, 0, GRID_SIZE * 0.7);
+            }
+            
+            // Reset baseline for the next draws
+            ctx.textBaseline = "alphabetic";
             ctx.restore();
 
             // pins
             comp.pins.forEach((pin) => {
-                // rotate pin offset
                 const rad = (comp.rotation * Math.PI) / 180;
-                const px = 
-                    x +
-                    pin.offset.x * GRID_SIZE * Math.cos(rad) -
+                const px =
+                    x + pin.offset.x * GRID_SIZE * Math.cos(rad) -
                     pin.offset.y * GRID_SIZE * Math.sin(rad);
                 const py =
-                    y +
-                    pin.offset.x * GRID_SIZE * Math.sin(rad) +
+                    y + pin.offset.x * GRID_SIZE * Math.sin(rad) +
                     pin.offset.y * GRID_SIZE * Math.cos(rad);
                 const pinKey = `${comp.id}:${pin.id}`;
                 const isHovered = hoveredPin === pinKey;
@@ -483,38 +531,64 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 }
             });
         });
+
+        // selection box
+        if (selectionBox) {
+            const {startX, startY, endX, endY} = selectionBox;
+            const bx = Math.min(startX, endX);
+            const by = Math.min(startY, endY);
+            const bw = Math.abs(endX - startX);
+            const bh = Math.abs(endY - startY);
+            ctx.fillStyle = SEL_BOX_FILL;
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = SEL_BOX_STROKE;
+            ctx.lineWidth = 1 / zoom;
+            ctx.setLineDash([4 / zoom, 4 / zoom]);
+            ctx.strokeRect(bx, by, bw, bh);
+            ctx.setLineDash([]);
+        }
+
         ctx.restore();
-        // crosshair cursor
+
+        // wire crosshair
         if (activeTool === "wire") {
             const snap = {
                 x: snapToGrid(mousePos.x - pan.x) * zoom + pan.x,
-                y: snapToGrid(mousePos.y - pan.y) * zoom + pan.y, 
+                y: snapToGrid(mousePos.y - pan.y) * zoom + pan.y,
             };
             ctx.strokeStyle = WIRE_COLOR + "88";
             ctx.lineWidth = 1;
-            ctx.setLineDash([4,4]);
+            ctx.setLineDash([4, 4]);
             ctx.beginPath();
             ctx.moveTo(snap.x - 8, snap.y);
             ctx.lineTo(snap.x + 8, snap.y);
             ctx.moveTo(snap.x, snap.y - 8);
-            ctx.lineTo(snap.x,snap.y+8);
+            ctx.lineTo(snap.x, snap.y + 8);
             ctx.stroke();
             ctx.setLineDash([]);
         }
-    }, [circuit, wireInProgress, zoom, pan, hoveredPin, activeTool, mousePos]);
-    // animation loop
+    }, [activeTool]);
+
+    // anim loop
     useEffect(() => {
         const animate = () => {
+            // Fetch the live speed setting synchronously
+            const { currentSpeed } = useCircuitStore.getState();
+            const multiplier = currentSpeed / 5; // Base speed is 5
+
             electronsRef.current.forEach((e) => {
-                e.t = (e.t + e.speed) % 1;
+                e.t = (e.t + (e.speed * multiplier)) % 1;
             });
+            
             draw();
             animFrameRef.current = requestAnimationFrame(animate);
         };
         animFrameRef.current = requestAnimationFrame(animate);
         return () => cancelAnimationFrame(animFrameRef.current);
     }, [draw]);
+
     // resize observer
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -527,85 +601,76 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         canvas.height = canvas.offsetHeight;
         return () => ro.disconnect();
     }, []);
-    // mouse helpers
-    const getHitComponent = useCallback(
-        (world:Point): CircuitComponent | null => {
-            for (const comp of Object.values(circuit.components)) {
-                const dx = world.x - comp.position.x;
-                const dy = world.y - comp.position.y;
-                if (Math.abs(dx) < GRID_SIZE * 1.2 && Math.abs(dy) < GRID_SIZE * 1.2) {
-                    return comp;
-                }
+
+    // hit helpers
+
+    const getHitComponent = useCallback((world: Point): CircuitComponent | null => {
+        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        for (const comp of Object.values(circuit.components)) {
+            const dx = world.x - comp.position.x;
+            const dy = world.y - comp.position.y;
+            if (Math.abs(dx) < GRID_SIZE * 1.2 && Math.abs(dy) < GRID_SIZE * 1.2) return comp;
+        }
+        return null;
+    }, []); // <-- Empty array
+
+    const getHitWire = useCallback((world: Point): Wire | null => {
+        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        const THRESHOLD = 6;
+        for (const wire of Object.values(circuit.wires)) {
+            for (let i = 1; i < wire.points.length; i++) {
+                const a = wire.points[i - 1];
+                const b = wire.points[i];
+                const ab = {x: b.x - a.x, y: b.y - a.y};
+                const ap = {x: world.x - a.x, y: world.y - a.y};
+                const t = Math.max(0, Math.min(1,
+                    (ap.x * ab.x + ap.y * ab.y) / (ab.x * ab.x + ab.y * ab.y + 1e-9)
+                ));
+                const closest = {x: a.x + t * ab.x, y: a.y + t * ab.y};
+                const dist = Math.sqrt((world.x - closest.x) ** 2 + (world.y - closest.y) ** 2);
+                if (dist < THRESHOLD) return wire;
             }
-            return null;
-        },
-        [circuit.components]
-    );
-    const getHitWire = useCallback(
-        (world: Point): Wire | null => {
-            const THRESHOLD = 6;
-            for (const wire of Object.values(circuit.wires)) {
-                for (let i = 1; i < wire.points.length; i++) {
-                    const a = wire.points[i - 1];
-                    const b = wire.points[i];
-                    // point to seg distance
-                    const ab = {x: b.x - a.x, y: b.y - a.y};
-                    const ap = {x: world.x - a.x, y: world.y - a.y};
-                    const t = Math.max(
-                        0,
-                        Math.min(1, (ap.x * ab.x + ap.y * ab.y) / (ab.x * ab.x + ab.y * ab.y + 1e-9))
-                    );
-                    const closest = {x: a.x + t * ab.x, y: a.y + t * ab.y};
-                    const dist = Math.sqrt(
-                        (world.x - closest.x) ** 2 + (world.y - closest.y) ** 2
-                    );
-                    if (dist < THRESHOLD) return wire;
-                }
+        }
+        return null;
+    }, []); // <-- Empty array
+
+    const getNearPin = useCallback((world: Point): string | null => {
+        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        const SNAP_DIST = GRID_SIZE * 0.6;
+        for (const comp of Object.values(circuit.components)) {
+            for (const pin of comp.pins) {
+                const rad = (comp.rotation * Math.PI) / 180;
+                const px =
+                    comp.position.x + pin.offset.x * GRID_SIZE * Math.cos(rad) -
+                    pin.offset.y * GRID_SIZE * Math.sin(rad);
+                const py =
+                    comp.position.y + pin.offset.x * GRID_SIZE * Math.sin(rad) +
+                    pin.offset.y * GRID_SIZE * Math.cos(rad);
+                if (Math.sqrt((world.x - px) ** 2 + (world.y - py) ** 2) < SNAP_DIST)
+                    return `${comp.id}:${pin.id}`;
             }
-            return null;
-        },
-        [circuit.wires]
-    );
-    const getNearPin = useCallback(
-        (world: Point): string | null => {
-            const SNAP_DIST = GRID_SIZE * 0.6;
-            for (const comp of Object.values(circuit.components)) {
-                for (const pin of comp.pins) {
-                    const rad = (comp.rotation * Math.PI) / 180;
-                    const px = 
-                        comp.position.x +
-                        pin.offset.x * GRID_SIZE * Math.cos(rad) -
-                        pin.offset.y * GRID_SIZE * Math.sin(rad);
-                    const py =
-                        comp.position.y + 
-                        pin.offset.x * GRID_SIZE * Math.sin(rad) +
-                        pin.offset.y * GRID_SIZE * Math.cos(rad);
-                    const dist = Math.sqrt((world.x - px) ** 2 + (world.y - py) ** 2);
-                    if (dist < SNAP_DIST) return `${comp.id}:${pin.id}`;
-                }
-            }
-            return null;
-        },
-        [circuit.components]
-    );
-    // event handlers
+        }
+        return null;
+    }, []); // <-- Empty array
+
+    // mouse handlers
+
     const handleMouseDown = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
+            setContextMenu(null);
             const rect = canvasRef.current!.getBoundingClientRect();
             const screen = {x: e.clientX - rect.left, y: e.clientY - rect.top};
             const world = screenToWorld(screen.x, screen.y);
-            const snapped: Point = {
-                x: snapToGrid(world.x),
-                y: snapToGrid(world.y),
-            };
+            const snapped: Point = {x: snapToGrid(world.x), y: snapToGrid(world.y)};
+
             if (e.button === 1 || (e.button === 0 && e.altKey)) {
-                // middle click or alt+click = pan
                 setIsPanning(true);
-                setPanStart({x:e.clientX - pan.x, y:e.clientY - pan.y});
+                setPanStart({x: e.clientX - pan.x, y: e.clientY - pan.y});
                 return;
             }
+
             if (activeTool === "wire") {
-                if(wireInProgress) {
+                if (wireInProgress) {
                     finishWire();
                     startWire(snapped);
                 } else {
@@ -613,13 +678,17 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 }
                 return;
             }
+
             if (activeTool === "select") {
                 const comp = getHitComponent(world);
                 if (comp) {
-                    selectComponent(comp.id, e.shiftKey);
+                    if (!comp.selected) selectComponent(comp.id, e.shiftKey);
                     onComponentSelect(comp.id);
                     setDraggingId(comp.id);
                     setDragStart(world);
+                    dragStartWorldRef.current = world;
+                    setIsDraggingSelection(true);
+                    pushHistory();
                     return;
                 }
                 const wire = getHitWire(world);
@@ -628,69 +697,136 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                     onComponentSelect(null);
                     return;
                 }
+                // start box select on empty canvas
                 clearSelection();
                 onComponentSelect(null);
+                setIsBoxSelecting(true);
+                startSelectionBox(world);
                 return;
             }
-            // component placement tools
-            const type = activeTool as ComponentType;
-            addComponent(type, snapped);
+
+            // component placement
+            addComponent(activeTool as ComponentType, snapped);
         },
         [
             activeTool, pan, wireInProgress, screenToWorld,
             startWire, finishWire, addComponent,
             getHitComponent, getHitWire,
             selectComponent, selectWire, clearSelection, onComponentSelect,
+            startSelectionBox, pushHistory,
         ]
     );
+
     const handleMouseMove = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
             const rect = canvasRef.current!.getBoundingClientRect();
             const screen = {x: e.clientX - rect.left, y: e.clientY - rect.top};
-            setMousePos(screen);
+            mousePosRef.current = screen;
             const world = screenToWorld(screen.x, screen.y);
-            const snapped: Point = {
-                x: snapToGrid(world.x),
-                y: snapToGrid(world.y),
-            };
+            const snapped: Point = {x: snapToGrid(world.x), y: snapToGrid(world.y)};
+
             if (isPanning) {
-                setPan({x:e.clientX - panStart.x, y:e.clientY - panStart.y});
+                setPan({x: e.clientX - panStart.x, y: e.clientY - panStart.y});
                 return;
             }
-            if (draggingId && activeTool === "select") {
+
+            if (isBoxSelecting) {
+                updateSelectionBox(world);
+                return;
+            }
+
+            if (isDraggingSelection && activeTool === "select") {
                 const delta = {
                     x: world.x - dragStart.x,
                     y: world.y - dragStart.y,
                 };
-                moveComponent(draggingId, delta);
+                // move all selected if multiple selected, else just the dragged one
+                const {selectedIds} = useCircuitStore.getState();
+                if (selectedIds.size > 1) {
+                    moveSelected(delta);
+                } else if (draggingId) {
+                    moveComponent(draggingId, delta);
+                }
                 setDragStart(world);
                 return;
             }
+
             if (wireInProgress) {
-                extendWire({ x: snapToGrid(world.x), y: snapToGrid(world.y) });
+                extendWire(snapped);
             }
-            // Pin hover detection
-            setHoveredPin(getNearPin(world));
-            setCursor(getNearPin(world) ? "crosshair" : activeTool === "select" ? "default" : "crosshair");
+
+            // hover detection
+            const comp = getHitComponent(world);
+            setHoveredComponent(comp ? comp.id : null);
+            const pin = getNearPin(world);
+            setHoveredPin(pin);
+            setCursor(
+                isPanning ? "grabbing" :
+                pin ? "crosshair" :
+                comp && activeTool === "select" ? "move" :
+                activeTool === "select" ? "default" : "crosshair"
+            );
         },
         [
-            isPanning, panStart, draggingId, dragStart, activeTool,
-            wireInProgress, screenToWorld,
-            setPan, moveComponent, extendWire, setHoveredPin, getNearPin,
+            isPanning, panStart, isDraggingSelection, isBoxSelecting,
+            draggingId, dragStart, activeTool, wireInProgress, screenToWorld,
+            setPan, moveComponent, moveSelected, extendWire,
+            setHoveredPin, setHoveredComponent, getNearPin, getHitComponent,
+            updateSelectionBox,
         ]
     );
+
     const handleMouseUp = useCallback(() => {
         setIsPanning(false);
+        setIsDraggingSelection(false);
         setDraggingId(null);
-    }, []);
+        if (isBoxSelecting) {
+            finishSelectionBox();
+            setIsBoxSelecting(false);
+        }
+    }, [isBoxSelecting, finishSelectionBox]);
+
     const handleDoubleClick = useCallback(
-        (_e: React.MouseEvent<HTMLCanvasElement>) => {
+        (e: React.MouseEvent<HTMLCanvasElement>) => {
+            const rect = canvasRef.current!.getBoundingClientRect();
+            const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
             if (activeTool === "wire" && wireInProgress) {
                 finishWire();
+                return;
+            }
+            // double click component = focus value input in properties panel
+            const comp = getHitComponent(world);
+            if (comp) {
+                onComponentSelect(comp.id);
+                selectComponent(comp.id);
             }
         },
-        [activeTool, wireInProgress, finishWire]
+        [activeTool, wireInProgress, finishWire, getHitComponent, onComponentSelect, selectComponent, screenToWorld]
     );
+
+    // right click context menu
+
+    const handleContextMenu = useCallback(
+        (e: React.MouseEvent<HTMLCanvasElement>) => {
+            e.preventDefault();
+            const rect = canvasRef.current!.getBoundingClientRect();
+            const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+            const comp = getHitComponent(world);
+            const wire = getHitWire(world);
+            setContextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                targetId: comp?.id ?? wire?.id ?? null,
+                targetType: comp ? "component" : wire ? "wire" : "canvas",
+            });
+            if (comp) selectComponent(comp.id);
+            if (wire) selectWire(wire.id);
+        },
+        [screenToWorld, getHitComponent, getHitWire, selectComponent, selectWire]
+    );
+
+    // wheel zoom
+
     const handleWheel = useCallback(
         (e: WheelEvent) => {
             e.preventDefault();
@@ -698,11 +834,10 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
-            const newZoom = Math.min(Math.max(zoom * factor, 0.2), 4);
-            // zoom toward mouse pointer
+            const newZoom = Math.min(Math.max(zoom * factor, 0.1), 5);
             setPan({
-                x: mx - (mx - pan.x) * (newZoom/zoom),
-                y: my - (my - pan.y) * (newZoom/zoom),
+                x: mx - (mx - pan.x) * (newZoom / zoom),
+                y: my - (my - pan.y) * (newZoom / zoom),
             });
             setZoom(newZoom);
         },
@@ -715,30 +850,134 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         canvas.addEventListener("wheel", handleWheel, {passive: false});
         return () => canvas.removeEventListener("wheel", handleWheel);
     }, [handleWheel]);
+
     // keyboard shortcuts
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") cancelWire();
-            if (e.key === "Delete" || e.key === "Backspace") deleteSelected();
+            // Prevent triggering shortcuts while typing in inputs
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    
+            // Fetch latest actions without needing them in the dependency array
+            const store = useCircuitStore.getState();
+            const ctrl = e.ctrlKey || e.metaKey;
+    
+            if (e.key === "Escape") { 
+                store.cancelWire(); 
+                store.cancelSelectionBox(); 
+                store.clearSelection(); 
+            }
+            if (e.key === "Delete" || e.key === "Backspace") { 
+                e.preventDefault(); 
+                store.deleteSelected(); 
+            }
+            if (ctrl && e.key === "z") { e.preventDefault(); store.undo(); }
+            if (ctrl && (e.key === "y" || (e.shiftKey && e.key === "z"))) { e.preventDefault(); store.redo(); }
+            if (ctrl && e.key === "c") { e.preventDefault(); store.copy(); }
+            if (ctrl && e.key === "v") { e.preventDefault(); store.paste(); }
+            if (ctrl && e.key === "x") { e.preventDefault(); store.cut(); }
+            if (ctrl && e.key === "d") { e.preventDefault(); store.duplicate(); }
+            if (ctrl && e.key === "a") { e.preventDefault(); store.selectAll(); }
+            if (e.key === "r" || e.key === "R") store.rotateSelected();
         };
+    
         window.addEventListener("keydown", onKey);
-        return() => window.removeEventListener("keydown", onKey);
-    }, [cancelWire, deleteSelected]);
+        return () => window.removeEventListener("keydown", onKey);
+    }, []);
+
+    // close context menu on outside click
+
+    useEffect(() => {
+        const handler = () => setContextMenu(null);
+        window.addEventListener("click", handler);
+        return () => window.removeEventListener("click", handler);
+    }, []);
+
     return (
-        <canvas
-            ref={canvasRef}
-            style = {{
-                width: "100%",
-                height: "100%",
-                display: "block",
-                cursor,
-                background: BG_COLOR,
-            }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onDoubleClick={handleDoubleClick}
-        />
+        <div style={{width: "100%", height: "100%", position: "relative"}}>
+            <canvas
+                ref={canvasRef}
+                style={{width: "100%", height: "100%", display: "block", cursor, background: BG_COLOR}}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onDoubleClick={handleDoubleClick}
+                onContextMenu={handleContextMenu}
+            />
+
+            {/* context menu */}
+            {contextMenu && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: contextMenu.y,
+                        left: contextMenu.x,
+                        background: "#0f1f2e",
+                        border: "1px solid #1e2a3a",
+                        borderRadius: 8,
+                        padding: "4px 0",
+                        zIndex: 1000,
+                        minWidth: 160,
+                        boxShadow: "0 8px 32px #00000088",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {contextMenu.targetType === "component" && (
+                        <>
+                            <CtxItem label="Rotate (R)" onClick={() => { rotateSelected(); setContextMenu(null); }} />
+                            <CtxItem label="Duplicate (Ctrl+D)" onClick={() => { duplicate(); setContextMenu(null); }} />
+                            <CtxItem label="Copy (Ctrl+C)" onClick={() => { copy(); setContextMenu(null); }} />
+                            <CtxItem label="Cut (Ctrl+X)" onClick={() => { cut(); setContextMenu(null); }} />
+                            <CtxDivider />
+                            <CtxItem label="Delete" onClick={() => { deleteSelected(); setContextMenu(null); }} danger />
+                        </>
+                    )}
+                    {contextMenu.targetType === "wire" && (
+                        <>
+                            <CtxItem label="Delete wire" onClick={() => { if (contextMenu.targetId) deleteWire(contextMenu.targetId); setContextMenu(null); }} danger />
+                        </>
+                    )}
+                    {contextMenu.targetType === "canvas" && (
+                        <>
+                            <CtxItem label="Paste (Ctrl+V)" onClick={() => { paste(); setContextMenu(null); }} />
+                            <CtxItem label="Select all (Ctrl+A)" onClick={() => { selectAll(); setContextMenu(null); }} />
+                            <CtxDivider />
+                            <CtxItem label="Undo (Ctrl+Z)" onClick={() => { undo(); setContextMenu(null); }} />
+                            <CtxItem label="Redo (Ctrl+Y)" onClick={() => { redo(); setContextMenu(null); }} />
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
     );
 };
+
+// context menu helpers
+
+function CtxItem({label, onClick, danger}: {label: string; onClick: () => void; danger?: boolean}) {
+    const [hovered, setHovered] = useState(false);
+    return (
+        <div
+            onClick={onClick}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            style={{
+                padding: "7px 16px",
+                fontSize: 12,
+                fontFamily: "monospace",
+                color: danger ? "#f87171" : hovered ? "#e2e8f0" : "#94a3b8",
+                background: hovered ? "#1e2a3a" : "transparent",
+                cursor: "pointer",
+                transition: "all 0.1s",
+            }}
+        >
+            {label}
+        </div>
+    );
+}
+
+function CtxDivider() {
+    return <div style={{height: 1, background: "#1e2a3a", margin: "4px 0"}} />;
+}
+
 export default Canvas;
