@@ -1,4 +1,4 @@
-import React, {useState, useCallback, act} from "react";
+import React, {useState, useCallback} from "react";
 import Canvas from "./components/editor/Canvas";
 import Toolbar from "./components/editor/Toolbar";
 import {useCircuitStore} from "./store/circuitStore";
@@ -182,7 +182,7 @@ function PropertiesPanel({component, onValueChange, onLabelChange}: PropPanelPro
                     </div>
                 </>
             ) : (
-                <div style={{ fontSize:11, color:"#2d3748, lineHeight:1.6"}}>
+                <div style={{ fontSize:11, color:"#2d3748", lineHeight:1.6}}>
                     Click a component to inspect it.
                     <br /><br />
                     <span style={{color: "#1e2a3a"}}>
