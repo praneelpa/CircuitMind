@@ -15,7 +15,6 @@ import {
     GRID_SIZE,
 } from "../types/circuit";
 
-// establishing helpers here
 let _compCounter: Record<string, number> = {};
 function nextLabel(type: ComponentType): string {
     const base = COMPONENT_DEFAULTS[type].label || type[0].toUpperCase();
@@ -31,24 +30,24 @@ export function snapToGrid(val: number): number {
 
 const MAX_HISTORY = 50;
 
-// state shape
 interface SelectionBox {
     startX: number;
     startY: number;
     endX: number;
     endY: number;
 }
+
 interface CircuitState {
     circuit: Circuit;
     selectedIds: Set<string>;
-    wireInProgress: Point[] | null; // points being drawn for the active wire
-    hoveredPin: string | null; // like circuit.ts, this will be "componentId:pinId"
+    wireInProgress: Point[] | null; 
+    hoveredPin: string | null; 
     zoom: number;
     pan: Point;
     isDragging: boolean;
     simulationResult: SimulationResult | null;
-    history: Circuit[];
-    historyIndex: number;
+    past: Circuit[];
+    future: Circuit[];
     clipboard: {
         components: Record<string, CircuitComponent>;
         wires: Record<string, Wire>;
@@ -61,7 +60,6 @@ interface CircuitState {
 }
 
 interface CircuitActions {
-    // component operations
     addComponent: (type: ComponentType, position: Point) => string;
     moveComponent: (id: string, delta: Point) => void;
     moveSelected: (delta: Point) => void;
@@ -71,54 +69,44 @@ interface CircuitActions {
     deleteComponent: (id: string) => void;
     updateComponentValue: (id: string, value: string) => void;
     updateComponentLabel: (id: string, label: string) => void;
-
-    // wires
+    
+    // Wire routing
     startWire: (point: Point) => void;
     extendWire: (point: Point) => void;
+    addWireCorner: () => void;
     finishWire: () => void;
     cancelWire: () => void;
     deleteWire: (id: string) => void;
-
-    // selection
+    
     selectComponent: (id: string, multi?: boolean) => void;
     selectWire: (id: string, multi?: boolean) => void;
     selectAll: () => void;
     clearSelection: () => void;
     deleteSelected: () => void;
-
-    // window select
     startSelectionBox: (point: Point) => void;
     updateSelectionBox: (point: Point) => void;
     finishSelectionBox: () => void;
     cancelSelectionBox: () => void;
-
-    // copy paste duplicate and cut
     copy: () => void;
     paste: () => void;
     duplicate: () => void;
     cut: () => void;
-
-    // undo redo
     undo: () => void;
     redo: () => void;
     pushHistory: () => void;
-
-    // viewport
     setZoom: (zoom: number) => void;
     setPan: (pan: Point) => void;
     setHoveredPin: (pinKey: string | null) => void;
     setHoveredComponent: (id: string | null) => void;
-    // sim
     setSimulating: (v:boolean) => void;
     setSimSpeed: (v:number) => void;
     setCurrentSpeed: (v: number) => void;
     setSimulationResult: (result: SimulationResult | null) => void;
-    // circuit meta
     clearCircuit: () => void;
     loadCircuit: (circuit: Circuit) => void;
+    renameCircuit: (name: string) => void;
 }
 
-// initial conditions or state
 const emptyCircuit = (): Circuit => ({
     id: uid(),
     name: "Untitled circuit",
@@ -127,10 +115,11 @@ const emptyCircuit = (): Circuit => ({
     nets: {},
     simulationResult: null,
 });
+
 function cloneCircuit(c:Circuit): Circuit {
     return JSON.parse(JSON.stringify(c));
 }
-// store
+
 export const useCircuitStore = create<CircuitState & CircuitActions>()(
     immer((set,get) => ({
         circuit: emptyCircuit(),
@@ -141,8 +130,8 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
         pan: {x: 0, y: 0},
         isDragging: false,
         simulationResult: null,
-        history: [],
-        historyIndex: -1,
+        past: [],
+        future: [],
         clipboard: null,
         selectionBox: null,
         isSimulating: false,
@@ -150,37 +139,28 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
         currentSpeed: 5,
         hoveredComponentId: null,
 
-        // undo redo
         pushHistory() {
-            const {circuit, history, historyIndex} = get();
-            const snapshot = cloneCircuit(circuit);
-            const newHistory = history.slice(0, historyIndex + 1);
-            newHistory.push(snapshot);
-            if(newHistory.length > MAX_HISTORY) newHistory.shift();
             set((state) => {
-                state.history = newHistory;
-                state.historyIndex = newHistory.length - 1;
+                state.past.push(cloneCircuit(state.circuit));
+                if (state.past.length > MAX_HISTORY) state.past.shift();
+                state.future = []; 
             });
         },
-
         undo() {
-            const {history, historyIndex} = get();
-            if(historyIndex <= 0) return;
-            const prev = history[historyIndex-1];
             set((state) => {
-                state.circuit = cloneCircuit(prev);
-                state.historyIndex = historyIndex-1;
+                if (state.past.length === 0) return;
+                const previous = state.past.pop()!;
+                state.future.push(cloneCircuit(state.circuit));
+                state.circuit = previous;
                 state.selectedIds.clear();
             });
         },
-
         redo() {
-            const {history, historyIndex} = get();
-            if (historyIndex >= history.length-1) return;
-            const next = history[historyIndex + 1];
             set((state) => {
-                state.circuit = cloneCircuit(next);
-                state.historyIndex = historyIndex + 1;
+                if (state.future.length === 0) return;
+                const next = state.future.pop()!;
+                state.past.push(cloneCircuit(state.circuit));
+                state.circuit = next;
                 state.selectedIds.clear();
             });
         },
@@ -273,27 +253,35 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
                 if (c) c.label = label;
             });
         },
-        // wires
         startWire(point) {
             const snapped: Point = {x: snapToGrid(point.x), y: snapToGrid(point.y) };
             set((state) => {
-                state.wireInProgress = [snapped, { ...snapped }];
+                state.wireInProgress = [snapped, { ...snapped }, { ...snapped }];
             });
         },
         extendWire(point) {
             const snapped: Point = {x: snapToGrid(point.x), y: snapToGrid(point.y)};
             set((state) => {
-                if (!state.wireInProgress) return;
+                if (!state.wireInProgress || state.wireInProgress.length < 3) return;
                 const pts = state.wireInProgress;
-                // orthogonal routing
-                const start = pts[0];
+                const start = pts[pts.length - 3]; // the last locked point
+                
                 const dx = Math.abs(snapped.x - start.x);
                 const dy = Math.abs(snapped.y - start.y);
                 if (dx >= dy) {
-                    pts[pts.length - 1] = {x: snapped.x, y: start.y};
+                    pts[pts.length - 2] = {x: snapped.x, y: start.y}; // Break horizontal first
                 } else {
-                    pts[pts.length - 1] = {x: start.x, y: snapped.y};
+                    pts[pts.length - 2] = {x: start.x, y: snapped.y}; // Break vertical first
                 }
+                pts[pts.length - 1] = {x: snapped.x, y: snapped.y};
+            });
+        },
+        addWireCorner() {
+            set((state) => {
+                if (!state.wireInProgress) return;
+                const pts = state.wireInProgress;
+                const last = pts[pts.length - 1];
+                pts.push({...last}, {...last});
             });
         },
         finishWire() {
@@ -303,16 +291,23 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
                 set((state) => {state.wireInProgress = null;});
                 return;
             }
-            const start = wireInProgress[0];
-            const end = wireInProgress[wireInProgress.length - 1];
-            if (start.x === end.x &&  start.y === end.y) {
+            const cleaned = [wireInProgress[0]];
+            for (let i = 1; i < wireInProgress.length; i++) {
+                const prev = cleaned[cleaned.length - 1];
+                const curr = wireInProgress[i];
+                if (curr.x === prev.x && curr.y === prev.y) continue;
+                cleaned.push(curr);
+            }
+
+            if (cleaned.length < 2) {
                 set((state) => {state.wireInProgress = null;});
                 return;
             }
+
             const id = uid();
             const wire: Wire = {
                 id, 
-                points: [...wireInProgress],
+                points: cleaned,
                 selected: false,
             };
             set((state) => {
@@ -330,7 +325,7 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
                 state.selectedIds.delete(id);
             });
         },
-        // selection
+
         selectComponent(id, multi = false) {
             set((state) => {
                 if (!multi) {
@@ -451,8 +446,6 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
         cancelSelectionBox() {
             set((state) => {state.selectionBox = null;});
         },
-
-        // copy paste duplicate cut
         copy() {
             const {circuit, selectedIds} =get();
             if(selectedIds.size === 0) return;
@@ -471,6 +464,7 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
             const {clipboard} = get();
             if (!clipboard) return;
             const OFFSET = GRID_SIZE * 2;
+            get().pushHistory();
             set((state) => {
                 state.selectedIds.clear();
                 Object.values(state.circuit.components).forEach((c) => (c.selected = false));
@@ -512,7 +506,6 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
             get().copy();
             get().deleteSelected();
         },
-        // viewport
         setZoom(zoom) {
             set((state) => {state.zoom = Math.min(Math.max(zoom, 0.1), 5); });
         },
@@ -525,7 +518,6 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
         setHoveredComponent(id) {
             set((state)=> {state.hoveredComponentId = id;});
         },
-        // simulation
         setSimulating(v) {
             set((state) => {state.isSimulating = v;});
         },
@@ -541,7 +533,6 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
                 state.circuit.simulationResult = result;
             });
         },
-        // circuit meta
         clearCircuit() {
             get().pushHistory();
             _compCounter = {};
@@ -553,11 +544,16 @@ export const useCircuitStore = create<CircuitState & CircuitActions>()(
             });
         },
         loadCircuit(circuit) {
-            get().pushHistory()
+            get().pushHistory();
             set((state) => {
                 state.circuit = circuit;
                 state.selectedIds.clear();
                 state.wireInProgress = null;
+            });
+        },
+        renameCircuit(name) {
+            set((state) => {
+                state.circuit.name = name;
             });
         },
     }))

@@ -9,8 +9,6 @@ import {
     GRID_SIZE,
 } from "../../types/circuit";
 
-// consts
-
 const GRID_DOT_COLOR  = "#2a3f55";
 const WIRE_COLOR      = "#4ade80";
 const WIRE_SELECTED   = "#facc15";
@@ -28,13 +26,12 @@ const ELECTRON_COLORS = ["#4ade80", "#22d3ee", "#a78bfa"];
 const SEL_BOX_FILL    = "#38bdf812";
 const SEL_BOX_STROKE  = "#38bdf8";
 
-// types
-
 type Tool = "select" | "wire" | ComponentType;
 
 interface CanvasProps {
     activeTool: Tool;
     onComponentSelect: (id: string | null) => void;
+    onToolChange: (tool: Tool) => void;
 }
 
 interface Electron {
@@ -50,8 +47,6 @@ interface ContextMenu {
     targetId: string | null;
     targetType: "component" | "wire" | "canvas";
 }
-
-// utils
 
 function ptAlongPolyline(points: Point[], t: number): Point {
     if (points.length < 2) return points[0] ?? {x: 0, y: 0};
@@ -78,10 +73,14 @@ function ptAlongPolyline(points: Point[], t: number): Point {
     return points[points.length - 1];
 }
 
-// draw funcs
-
-function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean, voltage: number = 0) {
     const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
+
+    if (Math.abs(voltage) > 0.1) {
+        ctx.shadowColor = "#ef4444";
+        ctx.shadowBlur = Math.min(Math.abs(voltage) / 5, 1) * 15;
+    }
+
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const w = GRID_SIZE * 1.6;
@@ -106,14 +105,17 @@ function drawResistor(ctx: CanvasRenderingContext2D, x: number, y: number, selec
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.stroke();
+    
+    ctx.shadowBlur = 0;
 }
 
-function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean, voltage: number = 0) {
     const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     const gap = 5;
     const plateH = GRID_SIZE * 0.7;
+    
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE, y);
     ctx.lineTo(x - gap, y);
@@ -127,15 +129,37 @@ function drawCapacitor(ctx: CanvasRenderingContext2D, x: number, y: number, sele
     ctx.moveTo(x + gap, y - plateH / 2);
     ctx.lineTo(x + gap, y + plateH / 2);
     ctx.stroke();
+    if (Math.abs(voltage) > 0.1) {
+        const charge = Math.min(Math.abs(voltage) / 5, 1);
+        ctx.globalAlpha = charge; 
+        ctx.fillStyle = voltage > 0 ? "#4ade80" : "#f87171"; 
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = charge * 15;
+        ctx.fillRect(x - gap + 2, y - plateH / 2, gap * 2 - 4, plateH); 
+        ctx.globalAlpha = 1.0; 
+        ctx.shadowBlur = 0;
+    }
 }
 
-function drawInductor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+function drawInductor(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean, voltage: number = 0, time: number = 0) {
     const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
+    
     const r = 6;
     const loops = 4;
     const totalW = loops * r * 2;
+
+    if (Math.abs(voltage) > 0.1) {
+        const field = Math.min(Math.abs(voltage) / 5, 1);
+        const pulse = Math.abs(Math.sin(time * 0.005));
+        ctx.strokeStyle = `rgba(56, 189, 248, ${field * pulse * 0.8})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, totalW / 2 + 8, r + 8, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x - GRID_SIZE, y);
     ctx.lineTo(x - totalW / 2, y);
@@ -191,10 +215,22 @@ function drawGround(ctx: CanvasRenderingContext2D, x: number, y: number, selecte
     });
 }
 
-function drawDiode(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
+function drawDiode(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean, voltage: number = 0) {
     const color = selected ? COMP_SELECTED : hovered ? COMP_HOVER_STROKE : COMP_STROKE;
+
+    if (voltage > 0.1) {
+        ctx.shadowColor = "#4ade80"; 
+        ctx.shadowBlur = Math.min(voltage / 2, 1) * 15;
+        ctx.fillStyle = "#4ade80"; 
+    } else if (voltage < -0.1) {
+        ctx.shadowColor = "#f87171";
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = color;
+    } else {
+        ctx.fillStyle = color;
+    }
+
     ctx.strokeStyle = color;
-    ctx.fillStyle = color;
     ctx.lineWidth = 1.5;
     const s = GRID_SIZE * 0.55;
     ctx.beginPath();
@@ -216,6 +252,7 @@ function drawDiode(ctx: CanvasRenderingContext2D, x: number, y: number, selected
     ctx.moveTo(x + s, y - s);
     ctx.lineTo(x + s, y + s);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 }
 
 function drawOpAmp(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean, hovered: boolean) {
@@ -273,18 +310,20 @@ function drawTransistorNPN(ctx: CanvasRenderingContext2D, x: number, y: number, 
     ctx.fill();
 }
 
-// main canvas
-
-const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
+const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect, onToolChange}) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animFrameRef = useRef<number>(0);
+    const timeRef = useRef<number>(0); 
     const electronsRef = useRef<Electron[]>([]);
     const dragStartWorldRef = useRef<Point>({x: 0, y: 0});
+
     const pan = useCircuitStore(state => state.pan);
     const zoom = useCircuitStore(state => state.zoom);
     const wireInProgress = useCircuitStore(state => state.wireInProgress);
+
     const startWire = useCircuitStore(state => state.startWire);
     const extendWire = useCircuitStore(state => state.extendWire);
+    const addWireCorner = useCircuitStore(state => state.addWireCorner); 
     const finishWire = useCircuitStore(state => state.finishWire);
     const addComponent = useCircuitStore(state => state.addComponent);
     const selectComponent = useCircuitStore(state => state.selectComponent);
@@ -300,6 +339,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     const setZoom = useCircuitStore(state => state.setZoom);
     const setHoveredPin = useCircuitStore(state => state.setHoveredPin);
     const setHoveredComponent = useCircuitStore(state => state.setHoveredComponent);
+
     const rotateSelected = useCircuitStore(state => state.rotateSelected);
     const duplicate = useCircuitStore(state => state.duplicate);
     const copy = useCircuitStore(state => state.copy);
@@ -321,8 +361,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     const mousePosRef = useRef<Point>({ x: 0, y: 0 });
     const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 
-    // coordinate transfrms
-
     const screenToWorld = useCallback(
         (sx: number, sy: number): Point => ({
             x: (sx - pan.x) / zoom,
@@ -331,7 +369,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         [pan, zoom]
     );
 
-    // electron sync 
     const wires = useCircuitStore(state => state.circuit.wires);
 
     useEffect(() => {
@@ -351,7 +388,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         electronsRef.current = electronsRef.current.filter((e) => wireIds.has(e.wireId));
     }, [wires]);
 
-    // draw
     const draw = useCallback(() => {
         const state = useCircuitStore.getState();
         const { 
@@ -369,7 +405,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         ctx.fillStyle = BG_COLOR;
         ctx.fillRect(0, 0, W, H);
 
-        // grid dots
         const step = GRID_SIZE * zoom;
         const offsetX = pan.x % step;
         const offsetY = pan.y % step;
@@ -386,10 +421,18 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         ctx.translate(pan.x, pan.y);
         ctx.scale(zoom, zoom);
 
-        // wires
         Object.values(circuit.wires).forEach((wire) => {
             if (wire.points.length < 2) return;
-            ctx.strokeStyle = wire.selected ? WIRE_SELECTED : WIRE_COLOR;
+
+            let renderColor = wire.selected ? WIRE_SELECTED : WIRE_COLOR;
+            if (state.simulationResult && (state.simulationResult as any).nodeVoltages) {
+                const voltage = (state.simulationResult as any).nodeVoltages[wire.id] || 0; 
+                if (voltage > 0.1) renderColor = "#4ade80"; 
+                else if (voltage < -0.1) renderColor = "#f87171"; 
+                else renderColor = "#64748b"; 
+            }
+
+            ctx.strokeStyle = renderColor;
             ctx.lineWidth = wire.selected ? 2 / zoom : 1.5 / zoom;
             ctx.lineJoin = "round";
             ctx.lineCap = "round";
@@ -406,7 +449,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             });
         });
 
-        // wire in progress
         if (wireInProgress && wireInProgress.length >= 2) {
             ctx.strokeStyle = WIRE_PREVIEW;
             ctx.lineWidth = 1.5 / zoom;
@@ -419,7 +461,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.setLineDash([]);
         }
 
-        // electrons
         electronsRef.current.forEach((electron) => {
             const wire = circuit.wires[electron.wireId];
             if (!wire || wire.points.length < 2) return;
@@ -436,7 +477,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.stroke();
         });
 
-        // components
         Object.values(circuit.components).forEach((comp) => {
             const {x, y} = comp.position;
             const hovered = hoveredComponentId === comp.id;
@@ -444,19 +484,26 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.translate(x, y);
             ctx.rotate((comp.rotation * Math.PI) / 180);
 
-            // hover glow
             if (hovered && !comp.selected) {
                 ctx.shadowColor = COMP_HOVER_STROKE;
                 ctx.shadowBlur = 8 / zoom;
             }
 
+            const compVolt = (state.simulationResult as any)?.componentVoltages?.[comp.id] || 0;
+
             switch (comp.type) {
-                case "resistor":        drawResistor(ctx, 0, 0, comp.selected, hovered); break;
-                case "capacitor":       drawCapacitor(ctx, 0, 0, comp.selected, hovered); break;
-                case "inductor":        drawInductor(ctx, 0, 0, comp.selected, hovered); break;
+                case "resistor":        
+                    drawResistor(ctx, 0, 0, comp.selected, hovered, compVolt); 
+                    break;
+                case "capacitor":       
+                    drawCapacitor(ctx, 0, 0, comp.selected, hovered, compVolt); 
+                    break;
+                case "inductor":        
+                    drawInductor(ctx, 0, 0, comp.selected, hovered, compVolt, timeRef.current); 
+                    break;
                 case "voltage_source":  drawVoltageSource(ctx, 0, 0, comp.selected, hovered); break;
                 case "ground":          drawGround(ctx, 0, 0, comp.selected, hovered); break;
-                case "diode":           drawDiode(ctx, 0, 0, comp.selected, hovered); break;
+                case "diode":           drawDiode(ctx, 0, 0, comp.selected, hovered, compVolt); break;
                 case "op_amp":          drawOpAmp(ctx, 0, 0, comp.selected, hovered); break;
                 case "transistor_npn":  drawTransistorNPN(ctx, 0, 0, comp.selected, hovered); break;
                 default:
@@ -468,30 +515,24 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
 
             ctx.shadowBlur = 0;
-            ctx.rotate((-comp.rotation * Math.PI) / 180);
+            ctx.rotate((-comp.rotation * Math.PI) / 180); 
             ctx.font = `${GRID_SIZE * 0.65}px 'JetBrains Mono', monospace`;
             
             const isVertical = comp.rotation % 180 !== 0;
 
             if (isVertical) {
-                // Vertical components
                 ctx.textBaseline = "middle";
-                
                 ctx.fillStyle = COMP_LABEL_COLOR;
                 ctx.textAlign = "right";
                 ctx.fillText(comp.label, -GRID_SIZE * 0.8, 0);
-                
                 ctx.fillStyle = COMP_VALUE_COLOR;
                 ctx.textAlign = "left";
                 ctx.fillText(`${comp.value}${comp.unit}`, GRID_SIZE * 0.8, 0);
             } else {
-                // Horizontal components
                 ctx.textAlign = "center";
-                
                 ctx.fillStyle = COMP_LABEL_COLOR;
                 ctx.textBaseline = "bottom";
                 ctx.fillText(comp.label, 0, -GRID_SIZE * 0.7);
-                
                 ctx.fillStyle = COMP_VALUE_COLOR;
                 ctx.textBaseline = "top";
                 ctx.fillText(`${comp.value}${comp.unit}`, 0, GRID_SIZE * 0.7);
@@ -500,7 +541,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             ctx.textBaseline = "alphabetic";
             ctx.restore();
 
-            // pins
             comp.pins.forEach((pin) => {
                 const rad = (comp.rotation * Math.PI) / 180;
                 const px =
@@ -525,7 +565,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             });
         });
 
-        // selection box
         if (selectionBox) {
             const {startX, startY, endX, endY} = selectionBox;
             const bx = Math.min(startX, endX);
@@ -543,7 +582,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
 
         ctx.restore();
 
-        // wire crosshair
         if (activeTool === "wire") {
             const snap = {
                 x: snapToGrid(mousePos.x - pan.x) * zoom + pan.x,
@@ -562,12 +600,12 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         }
     }, [activeTool]);
 
-    // anim loop
     useEffect(() => {
         const animate = () => {
-            // Fetch the live speed setting synchronously
             const { currentSpeed } = useCircuitStore.getState();
-            const multiplier = currentSpeed / 5; // Base speed is 5
+            const multiplier = currentSpeed / 5; 
+
+            timeRef.current += 16 * multiplier; 
 
             electronsRef.current.forEach((e) => {
                 e.t = (e.t + (e.speed * multiplier)) % 1;
@@ -579,8 +617,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         animFrameRef.current = requestAnimationFrame(animate);
         return () => cancelAnimationFrame(animFrameRef.current);
     }, [draw]);
-
-    // resize observer
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -595,20 +631,18 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         return () => ro.disconnect();
     }, []);
 
-    // hit helpers
-
     const getHitComponent = useCallback((world: Point): CircuitComponent | null => {
-        const { circuit } = useCircuitStore.getState();
+        const { circuit } = useCircuitStore.getState(); 
         for (const comp of Object.values(circuit.components)) {
             const dx = world.x - comp.position.x;
             const dy = world.y - comp.position.y;
             if (Math.abs(dx) < GRID_SIZE * 1.2 && Math.abs(dy) < GRID_SIZE * 1.2) return comp;
         }
         return null;
-    }, []); //
+    }, []); 
 
     const getHitWire = useCallback((world: Point): Wire | null => {
-        const { circuit } = useCircuitStore.getState();
+        const { circuit } = useCircuitStore.getState(); 
         const THRESHOLD = 6;
         for (const wire of Object.values(circuit.wires)) {
             for (let i = 1; i < wire.points.length; i++) {
@@ -628,7 +662,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     }, []); 
 
     const getNearPin = useCallback((world: Point): string | null => {
-        const { circuit } = useCircuitStore.getState();
+        const { circuit } = useCircuitStore.getState(); 
         const SNAP_DIST = GRID_SIZE * 0.6;
         for (const comp of Object.values(circuit.components)) {
             for (const pin of comp.pins) {
@@ -644,9 +678,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
         }
         return null;
-    }, []);
-
-    // mouse handlers
+    }, []); 
 
     const handleMouseDown = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -663,11 +695,19 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
 
             if (activeTool === "wire") {
-                if (wireInProgress) {
-                    finishWire();
+                const pinKey = getNearPin(world);
+
+                if (!wireInProgress) {
+                    if (!pinKey) return; 
                     startWire(snapped);
                 } else {
-                    startWire(snapped);
+                    if (pinKey) {
+                        extendWire(snapped);
+                        finishWire();
+                        onToolChange("select"); 
+                    } else {
+                        addWireCorner(); 
+                    }
                 }
                 return;
             }
@@ -690,7 +730,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                     onComponentSelect(null);
                     return;
                 }
-                // start box select on empty canvas
                 clearSelection();
                 onComponentSelect(null);
                 setIsBoxSelecting(true);
@@ -698,15 +737,15 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 return;
             }
 
-            // component placement
             addComponent(activeTool as ComponentType, snapped);
+            onToolChange("select"); 
         },
         [
             activeTool, pan, wireInProgress, screenToWorld,
-            startWire, finishWire, addComponent,
-            getHitComponent, getHitWire,
+            startWire, extendWire, addWireCorner, finishWire, addComponent,
+            getHitComponent, getHitWire, getNearPin,
             selectComponent, selectWire, clearSelection, onComponentSelect,
-            startSelectionBox, pushHistory,
+            startSelectionBox, pushHistory, onToolChange
         ]
     );
 
@@ -733,7 +772,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                     x: world.x - dragStart.x,
                     y: world.y - dragStart.y,
                 };
-                // move all selected if multiple selected, else just the dragged one
                 const {selectedIds} = useCircuitStore.getState();
                 if (selectedIds.size > 1) {
                     moveSelected(delta);
@@ -748,7 +786,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 extendWire(snapped);
             }
 
-            // hover detection
             const comp = getHitComponent(world);
             setHoveredComponent(comp ? comp.id : null);
             const pin = getNearPin(world);
@@ -785,19 +822,17 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
             if (activeTool === "wire" && wireInProgress) {
                 finishWire();
+                onToolChange("select");
                 return;
             }
-            // double click component = focus value input in properties panel
             const comp = getHitComponent(world);
             if (comp) {
                 onComponentSelect(comp.id);
                 selectComponent(comp.id);
             }
         },
-        [activeTool, wireInProgress, finishWire, getHitComponent, onComponentSelect, selectComponent, screenToWorld]
+        [activeTool, wireInProgress, finishWire, getHitComponent, onComponentSelect, selectComponent, screenToWorld, onToolChange]
     );
-
-    // right click context menu
 
     const handleContextMenu = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -817,8 +852,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         },
         [screenToWorld, getHitComponent, getHitWire, selectComponent, selectWire]
     );
-
-    // wheel zoom
 
     const handleWheel = useCallback(
         (e: WheelEvent) => {
@@ -844,13 +877,10 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         return () => canvas.removeEventListener("wheel", handleWheel);
     }, [handleWheel]);
 
-    // keyboard shortcuts
-
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     
-            // latest actions without needing them in the dependency array
             const store = useCircuitStore.getState();
             const ctrl = e.ctrlKey || e.metaKey;
     
@@ -858,6 +888,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 store.cancelWire(); 
                 store.cancelSelectionBox(); 
                 store.clearSelection(); 
+                onToolChange("select");
             }
             if (e.key === "Delete" || e.key === "Backspace") { 
                 e.preventDefault(); 
@@ -875,9 +906,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, []);
-
-    // close context menu on outside click
+    }, [onToolChange]);
 
     useEffect(() => {
         const handler = () => setContextMenu(null);
@@ -897,7 +926,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 onContextMenu={handleContextMenu}
             />
 
-            {/* context menu */}
             {contextMenu && (
                 <div
                     style={{
@@ -943,8 +971,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         </div>
     );
 };
-
-// context menu helpers
 
 function CtxItem({label, onClick, danger}: {label: string; onClick: () => void; danger?: boolean}) {
     const [hovered, setHovered] = useState(false);

@@ -22,6 +22,7 @@ export default function App() {
         simSpeed, setSimSpeed,
         currentSpeed, setCurrentSpeed,
         hoveredComponentId,
+        renameCircuit,
     } = useCircuitStore();
 
     const selectedComp = selectedId ? circuit.components[selectedId] : null;
@@ -29,7 +30,6 @@ export default function App() {
 
     const handleSimulate = useCallback(async () => {
         setSimulating(true);
-        // sim hook will be wired soon (making wasm solver first)
         await new Promise((r) => setTimeout(r, 800));
         setSimulating(false);
     }, [setSimulating]);
@@ -78,12 +78,15 @@ export default function App() {
                 fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
             }}
         >
-            {/* top bar */}
-            <TopBar onUndo={undo} onRedo={redo} onLoad={handleLoad} circuitName={circuit.name} />
+            <TopBar 
+                onUndo={undo} 
+                onRedo={redo} 
+                onLoad={handleLoad} 
+                circuitName={circuit.name} 
+                onRename={renameCircuit} 
+            />
 
-            {/* main row */}
             <div style={{display: "flex", flex: 1, overflow: "hidden"}}>
-                {/* left toolbar */}
                 <Toolbar
                     activeTool={activeTool}
                     onToolChange={setActiveTool}
@@ -93,7 +96,6 @@ export default function App() {
                     isSimulating={isSimulating}
                 />
 
-                {/* canvas */}
                 <div style={{flex: 1, position: "relative", overflow: "hidden"}}>
                     <Canvas
                         activeTool={activeTool}
@@ -101,11 +103,11 @@ export default function App() {
                             setSelectedId(id);
                             if (id) setActiveTool("select");
                         }}
+                        onToolChange={setActiveTool}
                     />
                     <HUD />
                 </div>
 
-                {/* right panel */}
                 <PropertiesPanel
                     component={selectedComp}
                     onValueChange={(v) => selectedId && updateComponentValue(selectedId, v)}
@@ -118,19 +120,17 @@ export default function App() {
                 />
             </div>
 
-            {/* bottom status bar */}
             <StatusBar hovered={hoveredComp} />
         </div>
     );
 }
 
-// top bar
-
-function TopBar({onUndo, onRedo, onLoad, circuitName}: {
+function TopBar({onUndo, onRedo, onLoad, circuitName, onRename}: {
     onUndo: () => void;
     onRedo: () => void;
     onLoad: () => void;
     circuitName: string;
+    onRename: (name: string) => void;
 }) {
     return (
         <div
@@ -146,7 +146,23 @@ function TopBar({onUndo, onRedo, onLoad, circuitName}: {
             }}
         >
             <span style={{color: "#38bdf8", fontSize: 13, fontWeight: 700, marginRight: 8}}>⚡ CircuitMind</span>
-            <span style={{color: "#2d3748", fontSize: 11}}>{circuitName}</span>
+            
+            <input 
+                value={circuitName}
+                onChange={(e) => onRename(e.target.value)}
+                style={{
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: "1px dashed #4a5568",
+                    color: "#e2e8f0",
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                    outline: "none",
+                    width: 200,
+                    padding: "2px 0"
+                }}
+            />
+
             <div style={{flex: 1}} />
             <TopBtn label="Undo" shortcut="⌘Z" onClick={onUndo} />
             <TopBtn label="Redo" shortcut="⌘Y" onClick={onRedo} />
@@ -178,8 +194,6 @@ function TopBtn({label, shortcut, onClick}: {label: string; shortcut: string; on
         </button>
     );
 }
-
-// hud
 
 function HUD() {
     const {zoom} = useCircuitStore();
@@ -217,8 +231,6 @@ function Chip({children}: {children: React.ReactNode}) {
         </div>
     );
 }
-
-// stat bar
 
 function StatusBar({hovered}: {hovered: ReturnType<typeof useCircuitStore.getState>["circuit"]["components"][string] | null | undefined}) {
     const {selectedIds} = useCircuitStore();
@@ -262,8 +274,6 @@ function StatusChip({label, value}: {label: string; value: string}) {
         </span>
     );
 }
-
-// properties panel
 
 interface PropPanelProps {
     component: ReturnType<typeof useCircuitStore.getState>["circuit"]["components"][string] | null | undefined;
@@ -337,7 +347,6 @@ function PropertiesPanel({
                 </div>
             )}
 
-            {/* sim speed sliders (like falstad) */}
             <div style={{marginTop: "auto", display: "flex", flexDirection: "column", gap: 12}}>
                 <Divider />
                 <SliderRow

@@ -6,6 +6,7 @@ import topLevelAwait from "vite-plugin-top-level-await";
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
   server: {
+    allowedHosts: ["unhelpful-gosling-eggshell.ngrok-free.dev"],
     proxy: {
       "/api": {
         target: "http://localhost:8000",
