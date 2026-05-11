@@ -280,13 +280,9 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     const animFrameRef = useRef<number>(0);
     const electronsRef = useRef<Electron[]>([]);
     const dragStartWorldRef = useRef<Point>({x: 0, y: 0});
-
-    // 1. Extract only the constants/functions needed for DOM event handlers
     const pan = useCircuitStore(state => state.pan);
     const zoom = useCircuitStore(state => state.zoom);
     const wireInProgress = useCircuitStore(state => state.wireInProgress);
-
-    // 2. Extract actions individually so they don't trigger re-renders
     const startWire = useCircuitStore(state => state.startWire);
     const extendWire = useCircuitStore(state => state.extendWire);
     const finishWire = useCircuitStore(state => state.finishWire);
@@ -304,8 +300,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     const setZoom = useCircuitStore(state => state.setZoom);
     const setHoveredPin = useCircuitStore(state => state.setHoveredPin);
     const setHoveredComponent = useCircuitStore(state => state.setHoveredComponent);
-
-    // Actions specifically for the Context Menu
     const rotateSelected = useCircuitStore(state => state.rotateSelected);
     const duplicate = useCircuitStore(state => state.duplicate);
     const copy = useCircuitStore(state => state.copy);
@@ -338,7 +332,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     );
 
     // electron sync 
-    const wires = useCircuitStore(state => state.circuit.wires); // <-- Add this specific subscription
+    const wires = useCircuitStore(state => state.circuit.wires);
 
     useEffect(() => {
         const wireList = Object.values(wires);
@@ -355,7 +349,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
         });
         const wireIds = new Set(wireList.map((w) => w.id));
         electronsRef.current = electronsRef.current.filter((e) => wireIds.has(e.wireId));
-    }, [wires]); // <-- Update dependency
+    }, [wires]);
 
     // draw
     const draw = useCallback(() => {
@@ -474,13 +468,13 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
 
             ctx.shadowBlur = 0;
-            ctx.rotate((-comp.rotation * Math.PI) / 180); // Un-rotate to draw text upright
+            ctx.rotate((-comp.rotation * Math.PI) / 180);
             ctx.font = `${GRID_SIZE * 0.65}px 'JetBrains Mono', monospace`;
             
             const isVertical = comp.rotation % 180 !== 0;
 
             if (isVertical) {
-                // Vertical components: Place labels on the left and right
+                // Vertical components
                 ctx.textBaseline = "middle";
                 
                 ctx.fillStyle = COMP_LABEL_COLOR;
@@ -491,7 +485,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 ctx.textAlign = "left";
                 ctx.fillText(`${comp.value}${comp.unit}`, GRID_SIZE * 0.8, 0);
             } else {
-                // Horizontal components: Place labels on the top and bottom
+                // Horizontal components
                 ctx.textAlign = "center";
                 
                 ctx.fillStyle = COMP_LABEL_COLOR;
@@ -503,7 +497,6 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
                 ctx.fillText(`${comp.value}${comp.unit}`, 0, GRID_SIZE * 0.7);
             }
             
-            // Reset baseline for the next draws
             ctx.textBaseline = "alphabetic";
             ctx.restore();
 
@@ -605,17 +598,17 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
     // hit helpers
 
     const getHitComponent = useCallback((world: Point): CircuitComponent | null => {
-        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        const { circuit } = useCircuitStore.getState();
         for (const comp of Object.values(circuit.components)) {
             const dx = world.x - comp.position.x;
             const dy = world.y - comp.position.y;
             if (Math.abs(dx) < GRID_SIZE * 1.2 && Math.abs(dy) < GRID_SIZE * 1.2) return comp;
         }
         return null;
-    }, []); // <-- Empty array
+    }, []); //
 
     const getHitWire = useCallback((world: Point): Wire | null => {
-        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        const { circuit } = useCircuitStore.getState();
         const THRESHOLD = 6;
         for (const wire of Object.values(circuit.wires)) {
             for (let i = 1; i < wire.points.length; i++) {
@@ -632,10 +625,10 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
         }
         return null;
-    }, []); // <-- Empty array
+    }, []); 
 
     const getNearPin = useCallback((world: Point): string | null => {
-        const { circuit } = useCircuitStore.getState(); // <-- Fetch state here
+        const { circuit } = useCircuitStore.getState();
         const SNAP_DIST = GRID_SIZE * 0.6;
         for (const comp of Object.values(circuit.components)) {
             for (const pin of comp.pins) {
@@ -651,7 +644,7 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
             }
         }
         return null;
-    }, []); // <-- Empty array
+    }, []);
 
     // mouse handlers
 
@@ -855,10 +848,9 @@ const Canvas: React.FC<CanvasProps> = ({activeTool, onComponentSelect}) => {
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            // Prevent triggering shortcuts while typing in inputs
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     
-            // Fetch latest actions without needing them in the dependency array
+            // latest actions without needing them in the dependency array
             const store = useCircuitStore.getState();
             const ctrl = e.ctrlKey || e.metaKey;
     
