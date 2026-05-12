@@ -2,7 +2,9 @@
 import React, {useState, useCallback} from "react";
 import Canvas from "./components/editor/Canvas";
 import Toolbar from "./components/editor/Toolbar";
+import AITutor from "./components/ai/AITutor";
 import {useCircuitStore} from "./store/circuitStore";
+import {useSimulator} from "./hooks/useSimulator";
 import {ComponentType} from "./types/circuit";
 
 type Tool = "select" | "wire" | ComponentType;
@@ -10,6 +12,7 @@ type Tool = "select" | "wire" | ComponentType;
 export default function App() {
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [showAI, setShowAI] = useState(false); // Controls if the AI window is open
 
     const {
         circuit,
@@ -18,21 +21,18 @@ export default function App() {
         updateComponentLabel,
         rotateComponent,
         undo, redo,
-        isSimulating, setSimulating,
+        isSimulating,
         simSpeed, setSimSpeed,
         currentSpeed, setCurrentSpeed,
         hoveredComponentId,
         renameCircuit,
     } = useCircuitStore();
 
+    // Replaces the old dummy handleSimulate with the real WASM simulator hook
+    const { simulate } = useSimulator();
+
     const selectedComp = selectedId ? circuit.components[selectedId] : null;
     const hoveredComp = hoveredComponentId ? circuit.components[hoveredComponentId] : null;
-
-    const handleSimulate = useCallback(async () => {
-        setSimulating(true);
-        await new Promise((r) => setTimeout(r, 800));
-        setSimulating(false);
-    }, [setSimulating]);
 
     const handleSave = useCallback(() => {
         const json = JSON.stringify(circuit, null, 2);
@@ -84,13 +84,14 @@ export default function App() {
                 onLoad={handleLoad} 
                 circuitName={circuit.name} 
                 onRename={renameCircuit} 
+                onToggleAI={() => setShowAI(!showAI)} // Passes the toggle function to the TopBar
             />
 
             <div style={{display: "flex", flex: 1, overflow: "hidden"}}>
                 <Toolbar
                     activeTool={activeTool}
                     onToolChange={setActiveTool}
-                    onSimulate={handleSimulate}
+                    onSimulate={simulate}
                     onClear={clearCircuit}
                     onSave={handleSave}
                     isSimulating={isSimulating}
@@ -106,6 +107,9 @@ export default function App() {
                         onToolChange={setActiveTool}
                     />
                     <HUD />
+                    
+                    {/* The AI Tutor renders here, floating over the canvas */}
+                    {showAI && <AITutor onClose={() => setShowAI(false)} />}
                 </div>
 
                 <PropertiesPanel
@@ -125,12 +129,13 @@ export default function App() {
     );
 }
 
-function TopBar({onUndo, onRedo, onLoad, circuitName, onRename}: {
+function TopBar({onUndo, onRedo, onLoad, circuitName, onRename, onToggleAI}: {
     onUndo: () => void;
     onRedo: () => void;
     onLoad: () => void;
     circuitName: string;
     onRename: (name: string) => void;
+    onToggleAI: () => void;
 }) {
     return (
         <div
@@ -164,6 +169,7 @@ function TopBar({onUndo, onRedo, onLoad, circuitName, onRename}: {
             />
 
             <div style={{flex: 1}} />
+            <TopBtn label="🧠 AI Tutor" shortcut="" onClick={onToggleAI} />
             <TopBtn label="Undo" shortcut="⌘Z" onClick={onUndo} />
             <TopBtn label="Redo" shortcut="⌘Y" onClick={onRedo} />
             <TopBtn label="Load" shortcut="" onClick={onLoad} />
