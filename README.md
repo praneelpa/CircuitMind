@@ -2,8 +2,6 @@
 
 An AI-powered, browser-based electronics lab where you design circuits visually, simulate real physics in real time, and learn from an AI tutor that reads your actual circuit.
 
-![CircuitMind](https://via.placeholder.com/1200x600/080f1a/38bdf8?text=CircuitMind)
-
 ## What it does
 
 You drag and drop components onto a schematic canvas, wire them together, and hit simulate. A custom circuit solver written in Rust and compiled to WebAssembly runs Modified Nodal Analysis on your circuit and returns real voltage and current values. Those values feed into live D3 visualizations: an oscilloscope, a Bode plot, and a phasor diagram. An AI tutor powered by Claude watches your circuit and explains what is happening in plain English. You can also write MicroPython code that controls virtual GPIO pins wired directly into your schematic.
